@@ -17,6 +17,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### CUDA 11.8（推荐安装方式）
+
+如果你的机器是 CUDA 11.8，建议不要直接依赖 `requirements.txt` 里的 `torch>=...` 去自动解析（可能会装到 CPU 版）。
+更稳的方式是先安装 cu118 的 PyTorch wheel，再安装其余依赖：
+
+```bash
+pip install --index-url https://download.pytorch.org/whl/cu118 torch torchvision torchaudio
+pip install -r requirements.txt
+```
+
+验证是否成功启用 GPU：
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
+```
+
 ## 数据格式（JSONL）
 
 训练/评估输入为 JSONL，每行一个样本：
@@ -39,6 +55,18 @@ python prepare_data.py \
 - `data/processed/train.jsonl`
 - `data/processed/val.jsonl`
 - `data/processed/test.jsonl`
+
+### 数据集目录说明（不推送到 GitHub）
+
+你本地可能会有如下目录（例如只包含 `train.json/valid.json/test.json` 的划分文件，或包含完整图片与文本的原始数据）：
+- `MMSD1.0/`
+- `MMSD2.0/`
+
+这些都属于数据集内容，本仓库默认不提交它们（`.gitignore` 已忽略）。同样，`data/processed/` 下生成的 JSONL 也默认不提交。
+
+建议：
+- 将原始数据与处理后的 JSONL 都留在本地/服务器；
+- 只把代码（`src/` 与各入口脚本）推送到 GitHub。
 
 ## 训练（train.py）
 
