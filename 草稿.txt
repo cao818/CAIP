@@ -1,0 +1,29 @@
+清理草稿（保留实现思路与备选方案，避免污染正式代码）
+
+一、增强版情感分支计算模块（草稿）
+
+目标：
+- 修复对比学习梯度阻断
+- 实现 DIP 式 Continuous Contrastive Learning
+- 对称 KL 更稳定
+- 可选 Batch Hard Contrastive Loss
+
+（原始内容来自对话中的草稿提案，未作为独立模块文件落地）
+
+关键点摘要：
+1) 移除 torch.no_grad()，允许梯度通过极性差异回传
+2) 高斯核软标签：G_p = exp(-|polarity_diff| / tau)，按行归一化
+3) 嵌入相似度：log_sim = log_softmax(cos_sim / temp)
+4) 对称 KL：0.5 * [KL(log_sim || G_p) + KL(log(G_p) || exp(log_sim))]
+5) 可选 hard loss：对角距离 pos_dist，讽刺样本要求 pos_dist > margin_pos，非讽刺要求 pos_dist < margin_neg
+
+二、AdvancedTestTimeMemory（草稿提案要点）
+
+目标：
+- MEP 式熵排序替换：保留更自信（低熵）的样本，驱逐高熵样本
+- 熵感知 KNN：邻居权重同时考虑距离与邻居自身熵（低熵权重更高）
+- 可选 DIP 分布先验：在线估计 (mu, sigma)，查询时混合 KNN 与分布似然
+
+落地状态：
+- 已在 src/models/advanced_memory.py 实现 AdvancedTestTimeMemory（正式代码）
+

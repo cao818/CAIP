@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+
+.ipynb_checkpoints/
+
+.venv/
+venv/
+
+# Datasets (do not commit)
+MMSD1.0/
+MMSD2.0/
+data/processed/
+
+# Training/evaluation artifacts (do not commit)
+runs/
+logs/
+old_logs/
+checkpoints/
+src/checkpoints/
+
+# Model artifacts & caches
+*.pt
+*.pth
+*.ckpt
+*.pkl
+
+# Figures
+*.png
