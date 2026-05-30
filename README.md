@@ -1,112 +1,93 @@
-# CAIP Project
+# CAIP（CLIP-based Adaptive Incongruity Perception）
 
-PyTorch implementation scaffold for **CAIP: CLIP-based Adaptive Incongruity Perception** on multimodal sarcasm detection.
+一个用于多模态讽刺检测的 PyTorch 项目。模型冻结 CLIP backbone，在其上构建三条决策分支并动态融合：
+- **语义不一致性分支**（semantic incongruity）
+- **情感不一致性分支**（affective incongruity）
+- **全局交互分支**（global interaction）
 
-## Features
+融合采用 **EGDF（Entropy-Guided Dynamic Fusion）**：按样本、按分支预测熵动态分配权重。评估阶段可选启用 **测试时记忆库**（Test-Time Memory）做顺序检索增强。
 
-- CLIP backbone with frozen encoder and LoRA-based interactive adaptation
-- Explicit semantic and affective incongruity modeling
-- Entropy-Guided Dynamic Fusion (EGDF)
-- Test-Time Memory for sequential inference
-- Training, evaluation, visualization, and batch experiment scripts
+本仓库只包含代码与脚本：**数据集与训练产物不上传**（已通过 `.gitignore` 排除 `MMSD* / data/processed / runs / checkpoints / *.pt / *.pkl / *.png` 等）。
 
-## Project Structure
-
-```text
-CAIP_Project/
-├── src/
-│   ├── models/
-│   ├── data/
-│   ├── training/
-│   └── utils/
-├── data/processed/
-├── checkpoints/
-├── logs/
-├── experiments/
-├── train.py
-├── eval.py
-├── analyze.py
-├── prepare_data.py
-├── run_experiments.sh
-└── requirements.txt
-```
-
-## Installation
+## 快速开始
 
 ```bash
-cd /root/work/CAIP_Project
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Dataset Format
+### CUDA 11.8（推荐安装方式）
 
-The training and evaluation scripts expect JSONL files with the following schema:
+如果你的机器是 CUDA 11.8，建议不要直接依赖 `requirements.txt` 里的 `torch>=...` 去自动解析（可能会装到 CPU 版）。
+更稳的方式是先安装 cu118 的 PyTorch wheel，再安装其余依赖：
+
+```bash
+pip install --index-url https://download.pytorch.org/whl/cu118 torch torchvision torchaudio
+pip install -r requirements.txt
+```
+
+验证是否成功启用 GPU：
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
+```
+
+## 数据格式（JSONL）
+
+训练/评估输入为 JSONL，每行一个样本：
 
 ```json
-{"image_path": "/absolute/or/relative/path/to/image.jpg", "text": "sample text", "label": 1}
+{"image_path": "path/to/image.jpg", "text": "sample text", "label": 1}
 ```
 
-- `image_path`: path to image file
-- `text`: associated text
-- `label`: `0` for non-sarcastic, `1` for sarcastic
+- `label`: 0=非讽刺，1=讽刺
 
-## Prepare MMSD2.0
-
-Assumed raw structure:
-
-```text
-MMSD2.0/
-├── train/
-│   ├── image/
-│   ├── text.txt
-│   └── label.txt
-├── val/
-│   ├── image/
-│   ├── text.txt
-│   └── label.txt
-└── test/
-    ├── image/
-    ├── text.txt
-    └── label.txt
-```
-
-Run:
+## 数据准备（示例：MMSD2.0）
 
 ```bash
 python prepare_data.py \
   --raw-root /path/to/MMSD2.0 \
-  --output-dir /root/work/CAIP_Project/data/processed
+  --output-dir data/processed
 ```
 
-Output:
-
+输出：
 - `data/processed/train.jsonl`
 - `data/processed/val.jsonl`
 - `data/processed/test.jsonl`
 
-## Training
+### 数据集目录说明（不推送到 GitHub）
 
-Basic training command:
+你本地可能会有如下目录（例如只包含 `train.json/valid.json/test.json` 的划分文件，或包含完整图片与文本的原始数据）：
+- `MMSD1.0/`
+- `MMSD2.0/`
+
+这些都属于数据集内容，本仓库默认不提交它们（`.gitignore` 已忽略）。同样，`data/processed/` 下生成的 JSONL 也默认不提交。
+
+建议：
+- 将原始数据与处理后的 JSONL 都留在本地/服务器；
+- 只把代码（`src/` 与各入口脚本）推送到 GitHub。
+
+## 训练（train.py）
 
 ```bash
 python train.py \
   --train_file data/processed/train.jsonl \
   --val_file data/processed/val.jsonl \
   --test_file data/processed/test.jsonl \
-  --epochs 10 \
+  --epochs 20 \
   --batch_size 32 \
   --lr 1e-4 \
-  --lora_rank 8 \
+  --weight_decay 1e-2 \
+  --lora_rank 16 \
   --entropy_temp 1.0 \
   --memory_size 512 \
   --ablation none \
-  --patience 3
+  --patience 8 \
+  --seed 42
 ```
 
-If your server has restricted network access, you can also provide a local CLIP
-directory or a Hugging Face token:
+离线/受限网络（使用本地 CLIP）：
 
 ```bash
 python train.py \
@@ -117,120 +98,54 @@ python train.py \
   --local_files_only
 ```
 
-Key outputs:
-
-- best checkpoint: `checkpoints/best_model.pt`
-- history log: `logs/train_history.json`
-- test metrics: `logs/test_metrics.json`
-- analysis cache: `analysis_cache.pkl`
-- memory plot: `memory_stats.png`
-
-## Evaluation
-
-Evaluate a trained checkpoint without retraining:
+## 评估（eval.py）
 
 ```bash
 python eval.py \
   --test_file data/processed/test.jsonl \
-  --checkpoint checkpoints/best_model.pt \
-  --lora_rank 8 \
+  --checkpoint runs/train/<experiment>/<run_id>/checkpoints/best_model.pt \
+  --batch_size 1 \
+  --lora_rank 16 \
   --entropy_temp 1.0 \
   --memory_size 512 \
   --ablation none
 ```
 
-Key outputs:
+说明：
+- 若希望测试时记忆库“边测边写”，评估阶段需要 `batch_size=1`（顺序更新）。
 
-- evaluation metrics JSON
-- `analysis_cache.pkl`
-- `memory_stats.png`
+## 产物位置（只看最新的这一套）
 
-## Visualization
+最新流程的所有训练/评估产物都在 `runs/` 目录下：
 
-Generate the main CAIP analysis figure:
+```text
+runs/
+├── train/<experiment>/<run_id>/
+│   ├── history.json
+│   ├── metrics.json
+│   ├── analysis_cache.pkl
+│   ├── memory_stats.png
+│   ├── run_manifest.json
+│   └── checkpoints/best_model.pt
+└── eval/<experiment>/<run_id>/
+    ├── metrics.json
+    ├── analysis_cache.pkl
+    ├── memory_stats.png
+    └── run_manifest.json
+```
+
+（仓库里可能存在 `logs/` 等历史目录，但它们不属于当前默认流程；当前默认只看 `runs/`。）
+
+## 可视化（analyze.py）
 
 ```bash
 python analyze.py \
-  --cache-path analysis_cache.pkl \
-  --output-path caip_analysis.png
+  --cache-path runs/train/<experiment>/<run_id>/analysis_cache.pkl \
+  --output-path runs/train/<experiment>/<run_id>/caip_analysis.png
 ```
 
-Generate memory bank statistics:
+## 代码入口（从这里开始读）
 
-```python
-from src.utils import plot_memory_stats
-
-plot_memory_stats(memory_source, output_path="memory_stats.png")
-```
-
-## Batch Experiments
-
-Run the full experiment suite:
-
-```bash
-bash run_experiments.sh
-```
-
-This script runs:
-
-- baseline
-- full CAIP
-- 4 ablations
-- LoRA rank sensitivity experiments
-
-It finally aggregates F1 scores into:
-
-- `experiments/f1_summary.tsv`
-
-Each experiment also saves:
-
-- `logs/experiments/<name>.log`
-- `logs/experiments/<name>_history.json`
-- `logs/experiments/<name>_analysis_cache.pkl`
-- `logs/experiments/<name>_memory_stats.png`
-- `logs/experiments/metrics/<name>.json`
-
-## Main Arguments
-
-### `train.py`
-
-- `--train_file`, `--val_file`, `--test_file`
-- `--lora_rank`, `--entropy_temp`, `--memory_size`
-- `--ablation [none|no_interactive|no_entropy|no_memory|no_affective]`
-- `--epochs`, `--batch_size`, `--lr`
-- `--patience`
-- `--hf_token`, `--hf_cache_dir`, `--local_files_only`
-
-### `eval.py`
-
-- `--test_file`
-- `--checkpoint`
-- `--lora_rank`, `--entropy_temp`, `--memory_size`
-- `--ablation`
-- `--metrics_output`, `--analysis_cache`, `--memory_plot`
-- `--hf_token`, `--hf_cache_dir`, `--local_files_only`
-
-## Metrics
-
-Current evaluation pipeline reports:
-
-- Accuracy
-- F1
-- Precision
-- Recall
-- ECE (Expected Calibration Error)
-- Easy accuracy
-- Hard accuracy
-
-## Reproducibility
-
-- Automatic CUDA detection with CPU fallback
-- Fixed random seed via `torch.manual_seed(42)` and aligned `numpy/random/cuda` seeds
-- Early stopping enabled with default `patience=3`
-
-## Notes
-
-- The CLIP backbone is loaded from Hugging Face and may require internet access on first run.
-- The code disables the Hugging Face `xet` download path by default to avoid common 401/CAS issues on restricted servers.
-- Test-Time Memory is only updated sequentially during `batch_size=1` evaluation.
-- Corrupted images are skipped with warnings instead of crashing the dataloader.
+- 模型与记忆库：[src/models/caip_model.py](src/models/caip_model.py)
+- 训练/评估与指标：[src/training/trainer.py](src/training/trainer.py)
+- ECE 指标：[src/utils/metrics.py](src/utils/metrics.py)

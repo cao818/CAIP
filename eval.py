@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+
 import argparse
 import json
 from datetime import datetime
